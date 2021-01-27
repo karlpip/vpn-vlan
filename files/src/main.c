@@ -30,15 +30,15 @@ int main(void)
 	}
 	fastd_start();
 
-	fastd_peers_init(fastd_reload_peers);
-
 	info_client_init(fastd_intro(), fastd_peers_handle_intro, NULL);
-
-
+	if(!info_server_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL)) {
+		log_info("ouch info_server_init");
+		goto cleanup_fastd;
+	}
 
 	if (!brdcst_init(evbase, info_client_start, secret)) {
 		log_error("ouch brdcst_init");
-		goto cleanup_fastd_peers;
+		goto cleanup_info_server;
 	}
 
 	while (!brdcst_send(secret, strlen(secret))) {
@@ -53,10 +53,10 @@ int main(void)
 	log_error("past loop..");
 	event_free(sigint_event);
 
-cleanup_fastd_peers:
-	fastd_peers_cleanup();
-
-	fastd_kill();
+cleanup_info_server:
+	info_server_cleanup();
+cleanup_fastd:
+	fastd_cleanup();
 cleanup_ev:
 	event_base_free(evbase);
 

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "fastd_peers.h"
 #include "log.h"
 
 #include "fastd.h"
@@ -120,9 +121,9 @@ bool fastd_prepare(void)
 	if(!get_port())
 		return false;
 
-	char cmd[1024];
-	snprintf(cmd, sizeof(cmd), "rm -rf %s; mkdir -p %speers", conf_dir(), conf_dir());
-	system(cmd);
+	char peers_dir[512];
+	snprintf(peers_dir, sizeof(peers_dir), "%speers/", conf_dir());
+	fastd_peers_init(peers_dir, fastd_reload_peers);
 
 	write_conf();
 
@@ -146,33 +147,18 @@ void fastd_start(void)
 	}
 }
 
-void fastd_kill(void)
+void fastd_cleanup(void)
 {
+	fastd_peers_cleanup();
+
 	if(proc)
 		kill(proc, SIGTERM);
 }
 
-void fastd_reload_peers(void)
+static void fastd_reload_peers(void)
 {
 	if(proc)
 		kill(proc, SIGHUP);
-}
-
-void fastd_add_peer(const char *pub_key, const char *host, int64_t port)
-{
-	// TODO: check if peer already exist? add folder first fastd_peers.c???
-	char filename[1024];
-	snprintf(filename, sizeof(filename), "%speers/%.16s", conf_dir(), pub_key);
-	FILE *f = fopen(filename, "w+");
-	fprintf(f, "key \"%s\";\nremote ipv4 \"%s\" port %lld;\n", pub_key, host, port);
-	fclose(f);
-
-	if(proc == 0) {
-		start();
-	}
-	else {
-
-	}
 }
 
 const char *fastd_intro(void)

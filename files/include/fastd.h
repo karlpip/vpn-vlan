@@ -5,11 +5,8 @@
 
 bool fastd_prepare(void);
 void fastd_start(void);
-void fastd_kill(void);
-
-void fastd_reload_peers(void);
+void fastd_cleanup(void);
 
 const char *fastd_intro(void);
-
 
 #endif

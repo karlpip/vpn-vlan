@@ -6,8 +6,6 @@
 #include "fastd_peers.h"
 
 
-#define PEERS_FILE "/tmp/config/fastd/peers"
-
 typedef struct {
 	char *ip;
 	uint16_t port;
@@ -19,11 +17,29 @@ typedef struct {
 
 static peer_t peers;
 static reload_peers_cb_t cb;
+static char peers_dir[512];
 
-bool fastd_peers_init(reload_peers_cb_t _cb)
+
+void fastd_peers_init(const char *_peers_dir, reload_peers_cb_t _cb)
 {
 	cb = _cb;
 	peers = NULL;
+
+	strncpy(peers_dir, sizeof(peers_dir), _peers_dir);
+
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd), "rm -rf %1$s; mkdir -p %1$s", peers_dir);
+	system(cmd);
+}
+
+void fastd_peers_cleanup(void)
+{
+	peer_t *p, *tmp;
+	HASH_ITER(hh, peers, p, tmp) {
+		free(p->ip);
+		free(p->key);
+		free(p);
+	}
 }
 
 static bool parse_intro(const char *intro, const char **key, uint16_t *port)
@@ -49,20 +65,13 @@ static bool parse_intro(const char *intro, const char **key, uint16_t *port)
 	return true;
 }
 
-static void write_peers(bool changed)
+static void write_peer(peer_t *p)
 {
-	if(!changed)
-		return;
+	char peer_file[1024];
+	snprintf(peer_file, sizeof(peer_file), "%s%s", peers_dir, p->key);
 
-	char cmd[1024];
-	snprintf(cmd, sizeof(cmd), "rm -rf %s", PEERS_FILE);
-	system(cmd);
-
-	FILE *f = fopen(PEERS_FILE, "w+");
-	peer_t *p, *tmp;
-	HASH_ITER(hh, peers, p, tmp) {
-		fprintf(f, "key \"%s\";\nremote ipv6 \"%s\" port %hu;\n", p->key, p->ip, p->port);
-	}
+	FILE *f = fopen(peer_file, "w+");
+	fprintf(f, "key \"%s\";\nremote ipv6 \"%s\" port %hu;\n", p->key, p->ip, p->port);
 	fclose(f);
 
 	cb();
@@ -70,8 +79,6 @@ static void write_peers(bool changed)
 
 void fastd_peers_handle_intro(const char *ip, const char *intro, void *ctx)
 {
-	bool changed = false;
-
 	uint16_t port;
 	const char *key;
 	if (!parse_intro(intro, &key, &port)) {
@@ -85,22 +92,17 @@ void fastd_peers_handle_intro(const char *ip, const char *intro, void *ctx)
 		if (strcmp(p->key, key) != 0) {
 			free(p->key);
 			p->key = key;
-			changed = true;
+			write_peer(p);
 		}
 		else {
 			free(key);
 		}
-
-		goto out;
 	}
-
-	p = malloc(sizeof(peer_t));
-	p->ip = strdup(ip);
-	p->key = key;
-
-	HASH_ADD_STR(peers, ip, p);
-
-	changed = true;
-out:
-	write_peers(changed);
+	else {
+		p = malloc(sizeof(peer_t));
+		p->ip = strdup(ip);
+		p->key = key;
+		HASH_ADD_STR(peers, ip, p);
+		write_peer(p);
+	}
 }
