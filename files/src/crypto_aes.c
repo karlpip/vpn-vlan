@@ -1,4 +1,5 @@
 #include <openssl/evp.h>
+#include <openssl/aes.h>
 
 #include "log.h"
 
@@ -18,9 +19,9 @@ bool crypto_aes_init(unsigned char *key_data, int key_data_len)
 		return false;
 	}
 
-	EVP_CIPHER_CTX_init(e_ctx);
+	e_ctx = EVP_CIPHER_CTX_new();
+	d_ctx = EVP_CIPHER_CTX_new();
 	EVP_EncryptInit_ex(e_ctx, EVP_aes_256_cbc(), NULL, key, iv);
-	EVP_CIPHER_CTX_init(d_ctx);
 	EVP_DecryptInit_ex(d_ctx, EVP_aes_256_cbc(), NULL, key, iv);
 
 	return true;

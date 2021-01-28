@@ -113,6 +113,12 @@ static void write_conf(void)
 	fclose(f);
 }
 
+static void fastd_reload_peers(void)
+{
+	if(proc)
+		kill(proc, SIGHUP);
+}
+
 bool fastd_prepare(void)
 {
 	if(!gen_keys())
@@ -155,13 +161,7 @@ void fastd_cleanup(void)
 		kill(proc, SIGTERM);
 }
 
-static void fastd_reload_peers(void)
-{
-	if(proc)
-		kill(proc, SIGHUP);
-}
-
 const char *fastd_intro(void)
 {
-	return &intro;
+	return intro;
 }

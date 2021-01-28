@@ -1,8 +1,15 @@
 #include <event2/event.h>
 #include <json-c/json.h>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "brdcst.h"
+#include "crypto_aes.h"
 #include "fastd.h"
+#include "fastd_peers.h"
+#include "info_client.h"
+#include "info_server.h"
 #include "log.h"
 
 
@@ -22,6 +29,10 @@ static void handle_interrupt(int fd, short events, void *arg)
 
 int main(void)
 {
+	log_info("start");
+	crypto_aes_init((unsigned char *) "roflroflroflrofl", 16);
+	log_info("yes");
+
 	evbase = event_base_new();
 
 	if (!fastd_prepare()) {
@@ -30,7 +41,7 @@ int main(void)
 	}
 	fastd_start();
 
-	info_client_init(fastd_intro(), fastd_peers_handle_intro, NULL);
+	info_client_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL);
 	if(!info_server_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_server_init");
 		goto cleanup_fastd;

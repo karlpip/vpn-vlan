@@ -1,3 +1,7 @@
+#include <arpa/inet.h>
+#include <event2/bufferevent.h>
+#include <event2/event.h>
+#include <event2/util.h>
 #include <uthash.h>
 
 #include "crypto_aes.h"
@@ -40,7 +44,7 @@ static void *ctx;
 
 static void cleanup_c(client_t *c)
 {
-	event_free(c->client_to)
+	event_free(c->client_to);
 	bufferevent_free(c->bev);
 	free(c->ip);
 	free(c);
@@ -48,6 +52,11 @@ static void cleanup_c(client_t *c)
 
 static void to_cb(evutil_socket_t fd, short what, void *arg)
 {
+	(void) fd;
+	(void) what;
+	(void) arg;
+
+
 	client_t *c = (client_t *) ctx;
 	log_info("timeout %s", c->ip);
 	cleanup_c(c);
@@ -57,8 +66,8 @@ static void to_cb(evutil_socket_t fd, short what, void *arg)
 static void handle_msg(client_t *c, const char *msg)
 {
 	int cipher_len = c->msg_len;
-	unsigned char *dec_server_intro = crypto_aes_decrypt(msg, &cipher_len);
-	cb(c->ip, dec_server_intro, ctx);
+	unsigned char *dec_server_intro = crypto_aes_decrypt((unsigned char *) msg, &cipher_len);
+	cb(c->ip, (char *) dec_server_intro, ctx);
 	free(dec_server_intro);
 }
 
@@ -82,7 +91,7 @@ static void readcb(struct bufferevent *bev, void *ctx)
 		if (r_len < c->msg_len)
 			log_error("payload short read %zd/%" PRIx16, r_len, c->msg_len);
 		else
-			handle_msg(c, enc_msg);
+			handle_msg(c, (const char *) enc_msg);
 	}
 	else {
 		log_info("server doesnt wait for us :/");
@@ -105,6 +114,8 @@ static void send_msg(client_t *c, const char *msg)
 
 static void eventcb(struct bufferevent *bev, short events, void *ctx)
 {
+	(void) bev;
+
 	client_t *c = (client_t *) ctx;
 
 	if (events & BEV_EVENT_CONNECTED) {
@@ -141,7 +152,7 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	struct sockaddr_in6 sin;
 	sin.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ip, &sin.sin6_addr);
-	sind.sin6_port = htons(INFO_SERVER_PORT);
+	sin.sin6_port = htons(INFO_SERVER_PORT);
 	struct bufferevent *bev = bufferevent_socket_new(evbase, -1, BEV_OPT_CLOSE_ON_FREE);
 	bufferevent_setcb(bev, readcb, NULL, eventcb, c);
 	bufferevent_enable(bev, EV_READ|EV_WRITE);

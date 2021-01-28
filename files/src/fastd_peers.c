@@ -1,5 +1,7 @@
-#include <uthash.h>
 #include <json-c/json.h>
+#include <safer_json.h>
+#include <stdbool.h>
+#include <uthash.h>
 
 #include "log.h"
 
@@ -15,7 +17,7 @@ typedef struct {
 	UT_hash_handle hh;
 } peer_t;
 
-static peer_t peers;
+static peer_t *peers;
 static reload_peers_cb_t cb;
 static char peers_dir[512];
 
@@ -25,10 +27,10 @@ void fastd_peers_init(const char *_peers_dir, reload_peers_cb_t _cb)
 	cb = _cb;
 	peers = NULL;
 
-	strncpy(peers_dir, sizeof(peers_dir), _peers_dir);
+	strncpy(peers_dir, _peers_dir, sizeof(peers_dir));
 
 	char cmd[1024];
-	snprintf(cmd, sizeof(cmd), "rm -rf %1$s; mkdir -p %1$s", peers_dir);
+	snprintf(cmd, sizeof(cmd), "rm -rf %s; mkdir -p %s", peers_dir, peers_dir);
 	system(cmd);
 }
 
@@ -42,7 +44,7 @@ void fastd_peers_cleanup(void)
 	}
 }
 
-static bool parse_intro(const char *intro, const char **key, uint16_t *port)
+static bool parse_intro(const char *intro, char **key, uint16_t *port)
 {
 	struct json_object *jintro = json_tokener_parse(intro);
 	if(!jintro)
@@ -79,8 +81,10 @@ static void write_peer(peer_t *p)
 
 void fastd_peers_handle_intro(const char *ip, const char *intro, void *ctx)
 {
+	(void) ctx;
+
 	uint16_t port;
-	const char *key;
+	char *key;
 	if (!parse_intro(intro, &key, &port)) {
 		log_error("intro malformed");
 		return;

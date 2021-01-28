@@ -1,3 +1,12 @@
+#include <arpa/inet.h>
+#include <event2/bufferevent.h>
+#include <event2/event.h>
+#include <event2/listener.h>
+#include <event2/util.h>
+#include <unistd.h>
+#include <uthash.h>
+
+#include "crypto_aes.h"
 #include "log.h"
 
 #include "info_server.h"
@@ -27,6 +36,7 @@ typedef struct {
 
 static struct evconnlistener *listener;
 static client_t *clients;
+struct event_base *evbase;
 
 const char *my_intro;
 
@@ -36,7 +46,7 @@ static void *ctx;
 
 static void cleanup_c(client_t *c)
 {
-	event_free(c->client_to)
+	event_free(c->client_to);
 	bufferevent_free(c->bev);
 	free(c->ip);
 	free(c);
@@ -44,6 +54,10 @@ static void cleanup_c(client_t *c)
 
 static void to_cb(evutil_socket_t fd, short what, void *arg)
 {
+	(void) fd;
+	(void) what;
+	(void) arg;
+
 	client_t *c = (client_t *) ctx;
 	log_info("server client timeout %s", c->ip);
 	cleanup_c(c);
@@ -61,11 +75,11 @@ static void send_msg(client_t *c, const char *msg)
 	free(cipher);
 }
 
-static void handle_msg(client_t *c, const char *msg)
+static void handle_msg(client_t *c, unsigned char *msg)
 {
 	int cipher_len = c->msg_len;
 	unsigned char *dec_server_intro = crypto_aes_decrypt(msg, &cipher_len);
-	cb(c->ip, dec_server_intro, ctx);
+	cb(c->ip, (const char *) dec_server_intro, ctx);
 	free(dec_server_intro);
 }
 
@@ -104,6 +118,8 @@ static void readcb(struct bufferevent *bev, void *ctx)
 
 static void eventcb(struct bufferevent *bev, short events, void *ctx)
 {
+	(void) bev;
+
 	client_t *c = (client_t *) ctx;
 
 	if (events & BEV_EVENT_CONNECTED) {
@@ -120,6 +136,9 @@ static void accept_conn_cb(struct evconnlistener *listener,
 			   evutil_socket_t fd, struct sockaddr *address,
 			   int socklen, void *ctx)
 {
+	(void) socklen;
+	(void) ctx;
+
 	char ip[INET6_ADDRSTRLEN + 1];
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) address;
 	if (!inet_ntop(sin6->sin6_family, &sin6->sin6_addr, ip, sizeof(ip))) {
@@ -152,8 +171,9 @@ static void accept_conn_cb(struct evconnlistener *listener,
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_server_init(struct event_base *evbase, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
+bool info_server_init(struct event_base *_evbase, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
 {
+	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
@@ -171,4 +191,14 @@ bool info_server_init(struct event_base *evbase, const char *_my_intro, client_i
 	// evconnlistener_set_error_cb(listener, accept_error_cb);
 
 	return true;
+}
+
+void info_server_cleanup(void)
+{
+	client_t *c, *tmp;
+	HASH_ITER(hh, clients, c, tmp) {
+		cleanup_c(c);
+		HASH_DEL(clients, c);
+	}
+	evconnlistener_free(listener);
 }

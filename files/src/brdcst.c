@@ -4,8 +4,10 @@
 #include <linux/if_ether.h>
 #include <netinet/in.h>
 #include <safer_json.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include "log.h"
 
@@ -71,7 +73,7 @@ static void read_cb(int s, short flags, void *arg)
 		return;
 	}
 
-	upd.cb(msg, ip, upd.ctx);
+	udp.cb(msg, ip, udp.ctx);
 }
 
 bool brdcst_send(const char *payload, uint16_t len)
@@ -83,7 +85,7 @@ bool brdcst_send(const char *payload, uint16_t len)
 	inet_pton(AF_INET6, BROADCAST_ADDR, &saddr.sin6_addr);
 
 	uint16_t net_len = htons(len);
-	ssize_t wlen = sendto(udp.s, net_len, sizeof(uint16_t), 0, (struct sockaddr *) &saddr, sizeof(saddr));
+	ssize_t wlen = sendto(udp.s, &net_len, sizeof(uint16_t), 0, (struct sockaddr *) &saddr, sizeof(saddr));
 	if (wlen == -1) {
 		log_error("sendto ouch: %s", strerror(errno));
 		return false;
@@ -100,8 +102,8 @@ bool brdcst_send(const char *payload, uint16_t len)
 		return false;
 	}
 
-	if ((size_t) wlen < ml) {
-		log_error("short write (%zd/%zu)", wlen, ml);
+	if ((size_t) wlen < len) {
+		log_error("short write (%zd/%zu)", wlen, len);
 		return false;
 	}
 
@@ -158,7 +160,7 @@ bool brdcst_init(struct event_base *evbase, msg_cb_t cb, void *ctx)
 	udp.read_ev = event_new(evbase, s, EV_READ | EV_PERSIST, read_cb, NULL);
 	event_add(udp.read_ev, NULL);
 
-	upd.cb = cb;
+	udp.cb = cb;
 	udp.ctx = ctx;
 
 	return true;
