@@ -15,7 +15,7 @@
 
 
 #define BRDCST_PORT 38388
-#define BROADCAST_ADDR "ff02::2c1"
+#define BROADCAST_ADDR "ff02::2"
 
 static struct {
 	int s;
@@ -28,11 +28,12 @@ static struct {
 } udp;
 
 
-
 static void read_cb(int s, short flags, void *arg)
 {
 	(void) flags;
 	(void) arg;
+
+	log_info("read cb");
 
 	struct sockaddr_storage from_info;
 	socklen_t info_size = sizeof(from_info);
@@ -52,7 +53,8 @@ static void read_cb(int s, short flags, void *arg)
 	}
 
 	uint16_t paylen = ntohs(netlen);
-	char *msg = alloca(paylen);
+
+	char *msg = alloca(paylen+1);
 	r_len = recvfrom(s, msg, paylen, 0, (struct sockaddr *) &from_info, &info_size);
 	if (r_len == -1) {
 		log_error("payload recv error %s", strerror(errno));
@@ -65,6 +67,8 @@ static void read_cb(int s, short flags, void *arg)
 		log_error("payload short read %zd/%" PRIx16, r_len, paylen);
 		return;
 	}
+
+	msg[r_len]  = '\0';
 
 	char ip[INET6_ADDRSTRLEN + 1];
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &from_info;
@@ -106,6 +110,8 @@ bool brdcst_send(const char *payload, uint16_t len)
 		log_error("short write (%zd/%zu)", wlen, len);
 		return false;
 	}
+
+	log_info("sent");
 
 	return true;
 }

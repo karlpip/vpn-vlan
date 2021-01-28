@@ -36,7 +36,7 @@ static struct event_base *evbase;
 
 static client_t *clients;
 
-const char *my_intro;
+static const char *my_intro;
 
 static server_intro_cb_t cb;
 static void *ctx;
@@ -89,7 +89,7 @@ static void readcb(struct bufferevent *bev, void *ctx)
 		unsigned char *enc_msg = alloca(c->msg_len);
 		size_t r_len =  bufferevent_read(bev, enc_msg, c->msg_len);
 		if (r_len < c->msg_len)
-			log_error("payload short read %zd/%" PRIx16, r_len, c->msg_len);
+			log_error("payload short read %zd/%hu", r_len, c->msg_len);
 		else
 			handle_msg(c, (const char *) enc_msg);
 	}

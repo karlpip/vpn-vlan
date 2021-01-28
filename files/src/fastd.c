@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "fastd_peers.h"
+#include "get_port.h"
 #include "log.h"
 
 #include "fastd.h"
@@ -41,29 +42,14 @@ static char port[6];
 static char intro[512];
 
 
-static bool get_port()
+static bool _get_port()
 {
-	bool res = true;
-	FILE *f = popen("nc -vluw 1 2>&1 | sed -En 's/.*:(\\d+).*/\\1/p'", "r");
-	if (!f) {
-		log_error("ouch popen: %s", strerror(errno));
+	uint16_t p = get_port();
+	if(p == 0)
 		return false;
-	}
-	if (feof(f)) {
-		log_error("neigh insta close");
-		res = false;
-		goto cleanup;
-	}
-	if(!fgets(port, 6, f)) {
-		log_error("fgets failed somehow");
-		res = false;
-		goto cleanup;
-	}
-	port[strlen(port)-1] = '\0';
-cleanup:
-	fclose(f);
 
-	return res;
+	snprintf(port, sizeof(port), "%hu", p);
+	return true;
 }
 
 static char *conf_dir()
@@ -124,7 +110,7 @@ bool fastd_prepare(void)
 	if(!gen_keys())
 		return false;
 
-	if(!get_port())
+	if(!_get_port())
 		return false;
 
 	char peers_dir[512];

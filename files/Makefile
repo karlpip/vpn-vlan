@@ -8,7 +8,7 @@ INCDIR = include
 BINNAME = $(BINDIR)/$(PKG_NAME)
 
 LDFLAGS += -Wl,-Bstatic -ljson-c-parser -lsaferjson
-LDFLAGS += -Wl,-Bdynamic -ljson-c -levent -levtssl -lssl -lcrypto
+LDFLAGS += -Wl,-Bdynamic -ljson-c -levent -lssl -lcrypto -levtssl
 
 CFLAGS += -I$(INCDIR) -Wall -Wpedantic -Wextra -pedantic -std=gnu99
 
