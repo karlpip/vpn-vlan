@@ -29,9 +29,7 @@ static void handle_interrupt(int fd, short events, void *arg)
 
 int main(void)
 {
-	log_info("start");
-	crypto_aes_init((unsigned char *) "roflroflroflrofl", 16);
-	log_info("yes");
+	crypto_aes_init((unsigned char *) "passpasspasspass", 16);
 
 	evbase = event_base_new();
 
