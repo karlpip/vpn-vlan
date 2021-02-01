@@ -2,6 +2,7 @@
 #include <event2/bufferevent.h>
 #include <event2/event.h>
 #include <event2/util.h>
+#include <net/if.h>
 #include <uthash.h>
 
 #include "crypto_aes.h"
@@ -37,10 +38,10 @@ static struct event_base *evbase;
 static client_t *clients;
 
 static const char *my_intro;
+static unsigned int if_index;
 
 static server_intro_cb_t cb;
 static void *ctx;
-
 
 static void cleanup_c(client_t *c)
 {
@@ -80,25 +81,28 @@ static void readcb(struct bufferevent *bev, void *ctx)
 		bufferevent_read(bev, &netlen, sizeof(uint16_t));
 		uint16_t paylen = ntohs(netlen);
 		c->msg_len = paylen;
+		log_info("paylen %d", paylen);
 		bufferevent_setwatermark(bev, EV_READ, paylen, 0);
+		bufferevent_trigger(bev, EV_READ, BEV_OPT_DEFER_CALLBACKS);
 
 		c->state = STATE_GOT_INTRO_LEN;
 		return;
 	}
 	else if (c->state == STATE_GOT_INTRO_LEN) {
+		log_info("reading msg");
 		unsigned char *enc_msg = alloca(c->msg_len);
 		size_t r_len =  bufferevent_read(bev, enc_msg, c->msg_len);
 		if (r_len < c->msg_len)
 			log_error("payload short read %zd/%hu", r_len, c->msg_len);
 		else
 			handle_msg(c, (const char *) enc_msg);
+
+		log_info("sending fin");
+		bufferevent_write(c->bev, "fin", 3);
 	}
 	else {
 		log_info("server doesnt wait for us :/");
 	}
-
-	cleanup_c(c);
-	HASH_DEL(clients, c);
 }
 
 static void send_msg(client_t *c, const char *msg)
@@ -121,9 +125,10 @@ static void eventcb(struct bufferevent *bev, short events, void *ctx)
 	if (events & BEV_EVENT_CONNECTED) {
 		send_msg(c, my_intro);
 		c->state = STATE_SENT_INTRO;
-	} else if (events & BEV_EVENT_ERROR) {
+	} else {
 		cleanup_c(c);
 		HASH_DEL(clients, c);
+		log_info("closed");
 	}
 
 	// TODO: cases
@@ -153,6 +158,7 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	sin.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ip, &sin.sin6_addr);
 	sin.sin6_port = htons(INFO_SERVER_PORT);
+	sin.sin6_scope_id = if_index;
 	struct bufferevent *bev = bufferevent_socket_new(evbase, -1, BEV_OPT_CLOSE_ON_FREE);
 	bufferevent_setcb(bev, readcb, NULL, eventcb, c);
 	bufferevent_enable(bev, EV_READ|EV_WRITE);
@@ -173,10 +179,18 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	HASH_ADD_STR(clients, ip, c);
 }
 
-void info_client_init(struct event_base *_evbase, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
+bool info_client_init(struct event_base *_evbase, const char *ifname, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
+
+	if_index = if_nametoindex(ifname);
+	if(if_index == 0) {
+		log_error("if_nametoindex ouch");
+		return false;
+	}
+
+	return true;
 }

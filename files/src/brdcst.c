@@ -16,6 +16,7 @@
 
 #define BRDCST_PORT 38388
 #define BROADCAST_ADDR "ff02::2"
+#define BROADCAST_PACK_LEN 32
 
 static struct {
 	int s;
@@ -26,6 +27,7 @@ static struct {
 
 	struct event *read_ev;
 } udp;
+static unsigned char pack[BROADCAST_PACK_LEN];
 
 
 static void read_cb(int s, short flags, void *arg)
@@ -38,37 +40,22 @@ static void read_cb(int s, short flags, void *arg)
 	struct sockaddr_storage from_info;
 	socklen_t info_size = sizeof(from_info);
 
-	uint16_t netlen;
-	ssize_t r_len = recvfrom(s, (void *) &netlen, sizeof(uint16_t), 0, (struct sockaddr *) &from_info, &info_size);
+	memset(pack, '\0', BROADCAST_PACK_LEN);
+	ssize_t r_len = recvfrom(s, pack, BROADCAST_PACK_LEN, 0, (struct sockaddr *) &from_info, &info_size);
 	if (r_len == -1) {
-		log_error("len recv error %s", strerror(errno));
+		log_error("recv error %s", strerror(errno));
 		return;
 	} else if (r_len == 0) {
-		log_error("len socket was closed");
+		log_error("socket was closed");
 		return;
 	}
-	if ((size_t) r_len < sizeof(uint16_t)) {
-		log_error("len short read %zd", r_len);
-		return;
-	}
-
-	uint16_t paylen = ntohs(netlen);
-
-	char *msg = alloca(paylen+1);
-	r_len = recvfrom(s, msg, paylen, 0, (struct sockaddr *) &from_info, &info_size);
-	if (r_len == -1) {
-		log_error("payload recv error %s", strerror(errno));
-		return;
-	} else if (r_len == 0) {
-		log_error("payload socket was closed");
-		return;
-	}
-	if ((size_t) r_len < paylen) {
-		log_error("payload short read %zd/%" PRIx16, r_len, paylen);
+	if ((size_t) r_len < BROADCAST_PACK_LEN) {
+		log_error("short read (%zd/%u)", r_len, BROADCAST_PACK_LEN);
 		return;
 	}
 
-	msg[r_len]  = '\0';
+	pack[r_len-1] = '\0';
+	log_info("receved secret %s", pack);
 
 	char ip[INET6_ADDRSTRLEN + 1];
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &from_info;
@@ -77,41 +64,35 @@ static void read_cb(int s, short flags, void *arg)
 		return;
 	}
 
-	udp.cb(msg, ip, udp.ctx);
+	udp.cb((const char *) pack, ip, udp.ctx);
 }
 
 bool brdcst_send(const char *payload, uint16_t len)
 {
+	if (len >= BROADCAST_PACK_LEN) {
+		log_error("payload oversized");
+		return false;
+	}
+
+	memset(pack, '\0', BROADCAST_PACK_LEN);
+	memcpy(pack, payload, len);
+
 	struct sockaddr_in6 saddr;
 	memset(&saddr, 0, sizeof(struct sockaddr_in6));
 	saddr.sin6_family = AF_INET6;
 	saddr.sin6_port = htons(BRDCST_PORT);
 	inet_pton(AF_INET6, BROADCAST_ADDR, &saddr.sin6_addr);
-
-	uint16_t net_len = htons(len);
-	ssize_t wlen = sendto(udp.s, &net_len, sizeof(uint16_t), 0, (struct sockaddr *) &saddr, sizeof(saddr));
+	ssize_t wlen = sendto(udp.s, pack, BROADCAST_PACK_LEN, 0, (struct sockaddr *) &saddr, sizeof(saddr));
 	if (wlen == -1) {
 		log_error("sendto ouch: %s", strerror(errno));
 		return false;
 	}
-
-	if ((size_t) wlen < sizeof(uint16_t)) {
-		log_error("short write (%zd/%zu)", wlen, sizeof(uint16_t));
+	if ((size_t) wlen < BROADCAST_PACK_LEN) {
+		log_error("short write (%zd/%u)", wlen, BROADCAST_PACK_LEN);
 		return false;
 	}
 
-	wlen = sendto(udp.s, payload, len, 0, (struct sockaddr *) &saddr, sizeof(saddr));
-	if (wlen == -1) {
-		log_error("sendto ouch: %s", strerror(errno));
-		return false;
-	}
-
-	if ((size_t) wlen < len) {
-		log_error("short write (%zd/%zu)", wlen, len);
-		return false;
-	}
-
-	log_info("sent broadcast");
+	log_info("sent broadcast %zd", wlen);
 
 	return true;
 }

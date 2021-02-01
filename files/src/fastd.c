@@ -49,6 +49,7 @@ static bool _get_port()
 		return false;
 
 	snprintf(port, sizeof(port), "%hu", p);
+	log_info("port %s", port);
 	return true;
 }
 

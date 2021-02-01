@@ -27,8 +27,13 @@ static void handle_interrupt(int fd, short events, void *arg)
 	event_base_loopbreak(evbase);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+	if (argc != 2) {
+		log_info("usage: ./bin/vpn-vlan [ifname]");
+		return 0;
+	}
+
 	crypto_aes_init((unsigned char *) "passpasspasspass", 16);
 
 	evbase = event_base_new();
@@ -39,8 +44,12 @@ int main(void)
 	}
 	fastd_start();
 
-	info_client_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL);
-	if(!info_server_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL)) {
+	if(!info_client_init(evbase, argv[1], fastd_intro(), fastd_peers_handle_intro, NULL)) {
+		log_info("ouch info_client_init");
+		goto cleanup_fastd;
+	}
+	
+	if(!info_server_init(evbase, argv[1], fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_server_init");
 		goto cleanup_fastd;
 	}

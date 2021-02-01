@@ -16,6 +16,7 @@ typedef enum {
 	STATE_CONNECTED,
 	STATE_SENT_INTRO,
 	STATE_GOT_INTRO_LEN,
+	STATE_GOT_INTRO,
 } client_state_t;
 
 typedef struct {
@@ -92,24 +93,32 @@ static void readcb(struct bufferevent *bev, void *ctx)
 		bufferevent_read(bev, &netlen, sizeof(uint16_t));
 		uint16_t paylen = ntohs(netlen);
 		c->msg_len = paylen;
+		log_info("msg len %d", paylen);
 		bufferevent_setwatermark(bev, EV_READ, paylen, 0);
+		bufferevent_trigger(bev, EV_READ, BEV_OPT_DEFER_CALLBACKS);
 
 		c->state = STATE_GOT_INTRO_LEN;
 		return;
 	}
 	else if (c->state == STATE_GOT_INTRO_LEN) {
+		log_info("reading msg");
 		unsigned char *enc_msg = alloca(c->msg_len);
 		size_t r_len =  bufferevent_read(bev, enc_msg, c->msg_len);
+		log_info("got it %d", r_len);
 		if (r_len < c->msg_len)
 			log_error("payload short read %zd/%hu", r_len, c->msg_len);
 		else
 			handle_msg(c, enc_msg);
 
+		log_info("sending msg");
+		bufferevent_setwatermark(bev, EV_READ, 0, 0);
 		send_msg(c, my_intro);
-
+		c->state = STATE_SENT_INTRO;
+	}
+	else if (c->state == STATE_SENT_INTRO) {
+		log_info("client recveived intro. closing");
 		cleanup_c(c);
 		HASH_DEL(clients, c);
-
 	}
 	else {
 		log_info("state???");
@@ -123,7 +132,7 @@ static void eventcb(struct bufferevent *bev, short events, void *ctx)
 	client_t *c = (client_t *) ctx;
 
 	if (events & BEV_EVENT_CONNECTED) {
-		c->state = STATE_SENT_INTRO;
+		c->state = STATE_CONNECTED;
 	} else if (events & BEV_EVENT_ERROR) {
 		cleanup_c(c);
 		HASH_DEL(clients, c);
@@ -138,6 +147,8 @@ static void accept_conn_cb(struct evconnlistener *listener,
 {
 	(void) socklen;
 	(void) ctx;
+
+	log_info("NEW CLIENT");
 
 	char ip[INET6_ADDRSTRLEN + 1];
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) address;
@@ -171,17 +182,24 @@ static void accept_conn_cb(struct evconnlistener *listener,
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_server_init(struct event_base *_evbase, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
+bool info_server_init(struct event_base *_evbase, const char *ifname, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
 
+	unsigned int if_index = if_nametoindex(ifname);
+	if(if_index == 0) {
+		log_error("if_nametoindex ouch");
+		return false;
+	}
+
 	struct sockaddr_in6 sin;
 	memset(&sin, 0, sizeof(sin));
 	sin.sin6_family = AF_INET6;
 	sin.sin6_port = htons(INFO_SERVER_PORT);
+	sin.sin6_scope_id = if_index;
 
 	listener = evconnlistener_new_bind(evbase, accept_conn_cb, NULL, LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE, -1, (struct sockaddr*) &sin, sizeof(sin));
 	if (!listener) {
