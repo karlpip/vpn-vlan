@@ -1,4 +1,4 @@
-PKG_NAME=node-pmvl
+PKG_NAME=vpn-vlan
 
 SRCDIR = src
 OBJDIR = obj
