@@ -82,6 +82,7 @@ bool brdcst_send(const char *payload, uint16_t len)
 	memset(&saddr, 0, sizeof(struct sockaddr_in6));
 	saddr.sin6_family = AF_INET6;
 	saddr.sin6_port = htons(BRDCST_PORT);
+	saddr.sin6_scope_id = if_index;
 	inet_pton(AF_INET6, BROADCAST_ADDR, &saddr.sin6_addr);
 	ssize_t wlen = sendto(udp.s, pack, BROADCAST_PACK_LEN, 0, (struct sockaddr *) &saddr, sizeof(saddr));
 	if (wlen == -1) {
@@ -141,6 +142,12 @@ bool brdcst_init(struct event_base *evbase, unsigned int _if_index, msg_cb_t cb,
 	mc_req.ipv6mr_interface = 0;
 
 	if (setsockopt(s, IPPROTO_IPV6, IPV6_JOIN_GROUP, (char *) &mc_req, sizeof(mc_req))) {
+		log_error("setsockopt group error %s", strerror(errno));
+		goto cleanup_sock;
+	}
+
+	int hops = 5;
+	if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof(hops))) {
 		log_error("setsockopt group error %s", strerror(errno));
 		goto cleanup_sock;
 	}
