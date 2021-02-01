@@ -33,6 +33,7 @@ static void read_cb(int s, short flags, void *arg)
 	(void) flags;
 	(void) arg;
 
+	log_info("recved broadcast");
 
 	struct sockaddr_storage from_info;
 	socklen_t info_size = sizeof(from_info);
@@ -109,6 +110,8 @@ bool brdcst_send(const char *payload, uint16_t len)
 		log_error("short write (%zd/%zu)", wlen, len);
 		return false;
 	}
+
+	log_info("sent broadcast");
 
 	return true;
 }
