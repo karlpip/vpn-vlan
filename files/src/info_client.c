@@ -179,18 +179,14 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_client_init(struct event_base *_evbase, const char *ifname, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
+bool info_client_init(struct event_base *_evbase, unsigned int _if_index, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
 
-	if_index = if_nametoindex(ifname);
-	if(if_index == 0) {
-		log_error("if_nametoindex ouch");
-		return false;
-	}
+	if_index = _if_index;
 
 	return true;
 }

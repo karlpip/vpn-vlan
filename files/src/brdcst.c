@@ -28,6 +28,7 @@ static struct {
 	struct event *read_ev;
 } udp;
 static unsigned char pack[BROADCAST_PACK_LEN];
+static unsigned int if_index;
 
 
 static void read_cb(int s, short flags, void *arg)
@@ -97,8 +98,10 @@ bool brdcst_send(const char *payload, uint16_t len)
 	return true;
 }
 
-bool brdcst_init(struct event_base *evbase, msg_cb_t cb, void *ctx)
+bool brdcst_init(struct event_base *evbase, unsigned int _if_index, msg_cb_t cb, void *ctx)
 {
+	if_index = _if_index;
+
 	int s = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 	if (s < 0) {
 		log_error("socket error %s", strerror(errno));
@@ -122,6 +125,7 @@ bool brdcst_init(struct event_base *evbase, msg_cb_t cb, void *ctx)
 	s_info.sin6_family = AF_INET6;
 	s_info.sin6_port = htons(BRDCST_PORT);
 	s_info.sin6_addr = in6addr_any;
+	s_info.sin6_scope_id = if_index;
 
 	if (bind(s, (struct sockaddr *) &s_info, sizeof(s_info)) < 0) {
 		log_error("bind failed %s", strerror(errno));

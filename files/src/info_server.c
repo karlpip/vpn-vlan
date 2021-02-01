@@ -182,18 +182,12 @@ static void accept_conn_cb(struct evconnlistener *listener,
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_server_init(struct event_base *_evbase, const char *ifname, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
+bool info_server_init(struct event_base *_evbase, unsigned int if_index, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
-
-	unsigned int if_index = if_nametoindex(ifname);
-	if(if_index == 0) {
-		log_error("if_nametoindex ouch");
-		return false;
-	}
 
 	struct sockaddr_in6 sin;
 	memset(&sin, 0, sizeof(sin));

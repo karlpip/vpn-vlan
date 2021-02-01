@@ -1,5 +1,6 @@
 #include <event2/event.h>
 #include <json-c/json.h>
+#include <net/if.h>
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +35,12 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	unsigned int if_index = if_nametoindex(argv[1]);
+	if(if_index == 0) {
+		log_error("ouch if_nametoindex");
+		return 0;
+	}
+
 	crypto_aes_init((unsigned char *) "passpasspasspass", 16);
 
 	evbase = event_base_new();
@@ -44,17 +51,17 @@ int main(int argc, char **argv)
 	}
 	fastd_start();
 
-	if(!info_client_init(evbase, argv[1], fastd_intro(), fastd_peers_handle_intro, NULL)) {
+	if(!info_client_init(evbase, if_index, fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_client_init");
 		goto cleanup_fastd;
 	}
-	
-	if(!info_server_init(evbase, argv[1], fastd_intro(), fastd_peers_handle_intro, NULL)) {
+
+	if(!info_server_init(evbase, if_index, fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_server_init");
 		goto cleanup_fastd;
 	}
 
-	if (!brdcst_init(evbase, info_client_start, secret)) {
+	if (!brdcst_init(evbase, if_index, info_client_start, secret)) {
 		log_error("ouch brdcst_init");
 		goto cleanup_info_server;
 	}
