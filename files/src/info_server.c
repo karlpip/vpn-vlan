@@ -7,6 +7,7 @@
 #include <uthash.h>
 
 #include "crypto_aes.h"
+#include "ifs.h"
 #include "log.h"
 
 #include "info_server.h"
@@ -27,8 +28,9 @@ typedef struct {
 	struct event *client_to;
 
 	client_state_t state;
-
 	uint16_t msg_len;
+
+	if_t *i;
 
 	UT_hash_handle hh;
 } client_t;
@@ -80,7 +82,7 @@ static void handle_msg(client_t *c, unsigned char *msg)
 {
 	int cipher_len = c->msg_len;
 	unsigned char *dec_server_intro = crypto_aes_decrypt(msg, &cipher_len);
-	cb(c->ip, (const char *) dec_server_intro, ctx);
+	cb(c->ip, (const char *) dec_server_intro, c->i->name, ctx);
 	free(dec_server_intro);
 }
 
@@ -150,6 +152,14 @@ static void accept_conn_cb(struct evconnlistener *listener,
 
 	log_info("NEW CLIENT");
 
+	uint32_t scope_id = ((struct sockaddr_in6 *) &address)->sin6_scope_id;
+	if_t *i = get_if_by_index(scope_id);
+	if(!i) {
+		log_error("unknown interface");
+		close(fd);
+		return;
+	}
+
 	char ip[INET6_ADDRSTRLEN + 1];
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) address;
 	if (!inet_ntop(sin6->sin6_family, &sin6->sin6_addr, ip, sizeof(ip))) {
@@ -167,6 +177,7 @@ static void accept_conn_cb(struct evconnlistener *listener,
 
 	c = malloc(sizeof(client_t));
 	c->ip = strdup(ip);
+	c->i = i;
 	struct event_base *base = evconnlistener_get_base(listener);
 	struct bufferevent *bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
 	bufferevent_setcb(bev, readcb, NULL, eventcb, c);
@@ -182,7 +193,7 @@ static void accept_conn_cb(struct evconnlistener *listener,
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_server_init(struct event_base *_evbase, unsigned int if_index, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
+bool info_server_init(struct event_base *_evbase, const char *_my_intro, client_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
@@ -193,7 +204,6 @@ bool info_server_init(struct event_base *_evbase, unsigned int if_index, const c
 	memset(&sin, 0, sizeof(sin));
 	sin.sin6_family = AF_INET6;
 	sin.sin6_port = htons(INFO_SERVER_PORT);
-	sin.sin6_scope_id = if_index;
 
 	listener = evconnlistener_new_bind(evbase, accept_conn_cb, NULL, LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE, -1, (struct sockaddr*) &sin, sizeof(sin));
 	if (!listener) {

@@ -11,6 +11,7 @@
 typedef struct {
 	char *ip;
 	char *port;
+	char *if_name;
 
 	char *key;
 
@@ -73,13 +74,13 @@ static void write_peer(peer_t *p)
 	snprintf(peer_file, sizeof(peer_file), "%s%s", peers_dir, p->key);
 
 	FILE *f = fopen(peer_file, "w+");
-	fprintf(f, "key \"%s\";\nremote ipv6 \"%s\" port %s;\n", p->key, p->ip, p->port);
+	fprintf(f, "key \"%s\";\nremote ipv6 \"%s%%%s\" port %s;\n", p->key, p->ip, p->if_name, p->port);
 	fclose(f);
 
 	cb();
 }
 
-void fastd_peers_handle_intro(const char *ip, const char *intro, void *ctx)
+void fastd_peers_handle_intro(const char *ip, const char *intro, const char *if_name, void *ctx)
 {
 	(void) ctx;
 
@@ -108,6 +109,7 @@ void fastd_peers_handle_intro(const char *ip, const char *intro, void *ctx)
 		p->ip = strdup(ip);
 		p->key = key;
 		p->port = port;
+		p->if_name = if_name;
 		HASH_ADD_STR(peers, ip, p);
 		write_peer(p);
 	}

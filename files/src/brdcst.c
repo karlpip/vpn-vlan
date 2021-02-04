@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <ifs.h>
 #include <json-c/json.h>
 #include <json-c-parser.h>
 #include <linux/if_ether.h>
@@ -13,9 +14,8 @@
 
 #include "brdcst.h"
 
-
-#define BRDCST_PORT 38388
 #define BROADCAST_ADDR "ff02::2"
+#define BRDCST_PORT 38388
 #define BROADCAST_PACK_LEN 32
 
 static struct {
@@ -28,7 +28,7 @@ static struct {
 	struct event *read_ev;
 } udp;
 static unsigned char pack[BROADCAST_PACK_LEN];
-static unsigned int if_index;
+static const char *brdcst_ip;
 
 
 static void read_cb(int s, short flags, void *arg)
@@ -65,7 +65,37 @@ static void read_cb(int s, short flags, void *arg)
 		return;
 	}
 
-	udp.cb((const char *) pack, ip, udp.ctx);
+	uint32_t scope_id = ((struct sockaddr_in6 *) &from_info)->sin6_scope_id;
+	if_t *i = get_if_by_index(scope_id);
+	if(!i) {
+		log_error("unknown interface");
+		return;
+	}
+
+	udp.cb((const char *) pack, ip, i, udp.ctx);
+}
+
+static void send_on_if(if_t *i, void *ctx)
+{
+	(void) ctx;
+
+	struct sockaddr_in6 saddr;
+	memset(&saddr, 0, sizeof(struct sockaddr_in6));
+	saddr.sin6_family = AF_INET6;
+	saddr.sin6_port = htons(BRDCST_PORT);
+	saddr.sin6_scope_id = i->index;
+	inet_pton(AF_INET6, brdcst_ip, &saddr.sin6_addr);
+	ssize_t wlen = sendto(udp.s, pack, BROADCAST_PACK_LEN, 0, (struct sockaddr *) &saddr, sizeof(saddr));
+	if (wlen == -1) {
+		log_error("sendto ouch: %s", strerror(errno));
+		return;
+	}
+	if ((size_t) wlen < BROADCAST_PACK_LEN) {
+		log_error("short write (%zd/%u)", wlen, BROADCAST_PACK_LEN);
+		return;
+	}
+
+	log_info("sent broadcast %zd", wlen);
 }
 
 bool brdcst_send(const char *payload, uint16_t len)
@@ -78,30 +108,30 @@ bool brdcst_send(const char *payload, uint16_t len)
 	memset(pack, '\0', BROADCAST_PACK_LEN);
 	memcpy(pack, payload, len);
 
-	struct sockaddr_in6 saddr;
-	memset(&saddr, 0, sizeof(struct sockaddr_in6));
-	saddr.sin6_family = AF_INET6;
-	saddr.sin6_port = htons(BRDCST_PORT);
-	saddr.sin6_scope_id = if_index;
-	inet_pton(AF_INET6, BROADCAST_ADDR, &saddr.sin6_addr);
-	ssize_t wlen = sendto(udp.s, pack, BROADCAST_PACK_LEN, 0, (struct sockaddr *) &saddr, sizeof(saddr));
-	if (wlen == -1) {
-		log_error("sendto ouch: %s", strerror(errno));
-		return false;
-	}
-	if ((size_t) wlen < BROADCAST_PACK_LEN) {
-		log_error("short write (%zd/%u)", wlen, BROADCAST_PACK_LEN);
-		return false;
-	}
-
-	log_info("sent broadcast %zd", wlen);
-
+	ifs_enum(send_on_if, NULL);
 	return true;
 }
 
-bool brdcst_init(struct event_base *evbase, unsigned int _if_index, msg_cb_t cb, void *ctx)
+static void join_group(if_t *i, void *ctx)
 {
-	if_index = _if_index;
+	int *s = (int *) ctx;
+
+	struct sockaddr_in6 mc_addr;
+	memset(&mc_addr, 0, sizeof(mc_addr));
+	inet_pton(AF_INET6, brdcst_ip, &mc_addr.sin6_addr);
+
+	struct ipv6_mreq mc_req;
+	memcpy(&mc_req.ipv6mr_multiaddr, &mc_addr.sin6_addr, sizeof(mc_req.ipv6mr_multiaddr));
+	mc_req.ipv6mr_interface = i->index;
+
+	if (setsockopt(*s, IPPROTO_IPV6, IPV6_JOIN_GROUP, (char *) &mc_req, sizeof(mc_req))) {
+		log_error("setsockopt group error %s", strerror(errno));
+	}
+}
+
+bool brdcst_init(struct event_base *evbase, msg_cb_t cb, void *ctx)
+{
+	brdcst_ip = getenv("ADDRESS") || BROADCAST_ADDR;
 
 	int s = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 	if (s < 0) {
@@ -126,25 +156,13 @@ bool brdcst_init(struct event_base *evbase, unsigned int _if_index, msg_cb_t cb,
 	s_info.sin6_family = AF_INET6;
 	s_info.sin6_port = htons(BRDCST_PORT);
 	s_info.sin6_addr = in6addr_any;
-	s_info.sin6_scope_id = if_index;
 
 	if (bind(s, (struct sockaddr *) &s_info, sizeof(s_info)) < 0) {
 		log_error("bind failed %s", strerror(errno));
 		goto cleanup_sock;
 	}
 
-	struct sockaddr_in6 mc_addr;
-	memset(&mc_addr, 0, sizeof(mc_addr));
-	inet_pton(AF_INET6, BROADCAST_ADDR, &mc_addr.sin6_addr);
-
-	struct ipv6_mreq mc_req;
-	memcpy(&mc_req.ipv6mr_multiaddr, &mc_addr.sin6_addr, sizeof(mc_req.ipv6mr_multiaddr));
-	mc_req.ipv6mr_interface = 0;
-
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_JOIN_GROUP, (char *) &mc_req, sizeof(mc_req))) {
-		log_error("setsockopt group error %s", strerror(errno));
-		goto cleanup_sock;
-	}
+	ifs_enum(join_group, &s);
 
 	int hops = 5;
 	if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof(hops))) {

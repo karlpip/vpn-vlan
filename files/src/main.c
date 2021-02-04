@@ -9,6 +9,7 @@
 #include "crypto_aes.h"
 #include "fastd.h"
 #include "fastd_peers.h"
+#include "ifs.h"
 #include "info_client.h"
 #include "info_server.h"
 #include "log.h"
@@ -30,14 +31,8 @@ static void handle_interrupt(int fd, short events, void *arg)
 
 int main(int argc, char **argv)
 {
-	if (argc != 2) {
-		log_info("usage: ./bin/vpn-vlan [ifname]");
-		return 0;
-	}
-
-	unsigned int if_index = if_nametoindex(argv[1]);
-	if(if_index == 0) {
-		log_error("ouch if_nametoindex");
+	if (argc < 2) {
+		log_info("usage: ./bin/vpn-vlan [if1] [if2] ...");
 		return 0;
 	}
 
@@ -45,23 +40,28 @@ int main(int argc, char **argv)
 
 	evbase = event_base_new();
 
+	if(ifs_init(argv+1, argc-1) == 0) {
+		log_error("no usable interfaces");
+		goto cleanup_ev;
+	}
+
 	if (!fastd_prepare()) {
 		log_error("ouch fastd_prepare");
-		goto cleanup_ev;
+		goto cleanup_ifs;
 	}
 	fastd_start();
 
-	if(!info_client_init(evbase, if_index, fastd_intro(), fastd_peers_handle_intro, NULL)) {
+	if(!info_client_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_client_init");
 		goto cleanup_fastd;
 	}
 
-	if(!info_server_init(evbase, if_index, fastd_intro(), fastd_peers_handle_intro, NULL)) {
+	if(!info_server_init(evbase, fastd_intro(), fastd_peers_handle_intro, NULL)) {
 		log_info("ouch info_server_init");
 		goto cleanup_fastd;
 	}
 
-	if (!brdcst_init(evbase, if_index, info_client_start, secret)) {
+	if (!brdcst_init(evbase, info_client_start, secret)) {
 		log_error("ouch brdcst_init");
 		goto cleanup_info_server;
 	}
@@ -82,6 +82,8 @@ cleanup_info_server:
 	info_server_cleanup();
 cleanup_fastd:
 	fastd_cleanup();
+cleanup_ifs:
+	ifs_cleanup();
 cleanup_ev:
 	event_base_free(evbase);
 

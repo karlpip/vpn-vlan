@@ -6,6 +6,7 @@
 #include <uthash.h>
 
 #include "crypto_aes.h"
+#include "ifs.h"
 #include "log.h"
 
 #include "info_client.h"
@@ -27,8 +28,9 @@ typedef struct {
 	struct event *client_to;
 
 	client_state_t state;
-
 	uint16_t msg_len;
+
+	if_t *i;
 
 	UT_hash_handle hh;
 } client_t;
@@ -38,7 +40,6 @@ static struct event_base *evbase;
 static client_t *clients;
 
 static const char *my_intro;
-static unsigned int if_index;
 
 static server_intro_cb_t cb;
 static void *ctx;
@@ -68,7 +69,7 @@ static void handle_msg(client_t *c, const char *msg)
 {
 	int cipher_len = c->msg_len;
 	unsigned char *dec_server_intro = crypto_aes_decrypt((unsigned char *) msg, &cipher_len);
-	cb(c->ip, (char *) dec_server_intro, ctx);
+	cb(c->ip, (char *) dec_server_intro, c->i->name, ctx);
 	free(dec_server_intro);
 }
 
@@ -134,7 +135,7 @@ static void eventcb(struct bufferevent *bev, short events, void *ctx)
 	// TODO: cases
 }
 
-void info_client_start(const char *msg, const char *ip, void *ctx)
+void info_client_start(const char *msg, const char *ip, if_t *i, void *ctx)
 {
 	const char *secret = (const char *) ctx;
 
@@ -153,12 +154,13 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	c = malloc(sizeof(client_t));
 	c->ip = strdup(ip);
 	c->client_to = evtimer_new(evbase, to_cb, c);
+	c->i = i;
 
 	struct sockaddr_in6 sin;
 	sin.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ip, &sin.sin6_addr);
 	sin.sin6_port = htons(INFO_SERVER_PORT);
-	sin.sin6_scope_id = if_index;
+	sin.sin6_scope_id = i->index;
 	struct bufferevent *bev = bufferevent_socket_new(evbase, -1, BEV_OPT_CLOSE_ON_FREE);
 	bufferevent_setcb(bev, readcb, NULL, eventcb, c);
 	bufferevent_enable(bev, EV_READ|EV_WRITE);
@@ -179,14 +181,12 @@ void info_client_start(const char *msg, const char *ip, void *ctx)
 	HASH_ADD_STR(clients, ip, c);
 }
 
-bool info_client_init(struct event_base *_evbase, unsigned int _if_index, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
+bool info_client_init(struct event_base *_evbase, const char *_my_intro, server_intro_cb_t _cb, void *_ctx)
 {
 	evbase = _evbase;
 	my_intro = _my_intro;
 	cb = _cb;
 	ctx = _ctx;
-
-	if_index = _if_index;
 
 	return true;
 }
